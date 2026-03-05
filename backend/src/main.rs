@@ -48,6 +48,7 @@ enum ServerMsg {
 
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().ok();
     let rooms: Rooms = Arc::new(RwLock::new(HashMap::new()));
     let port = std::env::var("PORT").unwrap_or_else(|_| "3001".into());
 
