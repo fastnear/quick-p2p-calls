@@ -56,7 +56,9 @@ export function useWebRTC(signaling: SignalingHandle, connected: boolean, localS
   const prevOutboundVideo = useRef<number | null>(null);
   const prevInboundVideo = useRef<number | null>(null);
 
-  localStreamRef.current = localStream;
+  useEffect(() => {
+    localStreamRef.current = localStream;
+  }, [localStream]);
 
   const cleanup = useCallback(() => {
     pcRef.current?.close();
@@ -254,7 +256,7 @@ export function useWebRTC(signaling: SignalingHandle, connected: boolean, localS
             info.inboundAudio = { codec: codec.replace("audio/", ""), resolution: "", framerate: null, bitrate: null };
           }
         });
-      } catch {}
+      } catch { /* stats unavailable */ }
 
       setDebug(info);
     }, 1000);

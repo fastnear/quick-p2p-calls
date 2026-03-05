@@ -14,7 +14,7 @@ function loadPrefs(): DevicePrefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     if (raw) return { ...defaultPrefs, ...JSON.parse(raw) };
-  } catch {}
+  } catch { /* ignore */ }
   return defaultPrefs;
 }
 
