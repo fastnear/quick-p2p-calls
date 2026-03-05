@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useRef, useEffect, useState, useCallback } from "react";
+import { generateCallId } from "../lib/callId";
 import { useSignaling } from "../hooks/useSignaling";
 import { useMediaDevices } from "../hooks/useMediaDevices";
 import { useWebRTC } from "../hooks/useWebRTC";
@@ -16,6 +17,9 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
+const selectClass =
+  "w-full rounded bg-gray-700 px-2 py-1 text-xs text-gray-200 outline-none hover:bg-gray-600";
+
 export default function CallPage() {
   const { callId } = useParams<{ callId: string }>();
   const navigate = useNavigate();
@@ -24,15 +28,31 @@ export default function CallPage() {
   const [copied, setCopied] = useState(false);
   const [debugOpen, setDebugOpen] = useState(() => localStorage.getItem("debug-open") === "true");
   const [swapped, setSwapped] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const { handle: signaling, connected } = useSignaling(callId);
-  const { stream, audioEnabled, videoEnabled, toggleAudio, toggleVideo, stopAll } =
-    useMediaDevices();
-  const { remoteStream, connectionState, debug, cleanup: cleanupWebRTC } = useWebRTC(
+  const {
+    stream, audioEnabled, videoEnabled, toggleAudio, toggleVideo, stopAll,
+    audioInputs, videoInputs, audioOutputs,
+    selectedAudioInput, selectedVideoInput, selectedAudioOutput,
+    switchAudioInput, switchVideoInput, switchAudioOutput,
+    onTrackChangedRef,
+  } = useMediaDevices();
+  const { remoteStream, connectionState, debug, cleanup: cleanupWebRTC, replaceTracks } = useWebRTC(
     signaling,
     connected,
     stream
   );
+
+  // Wire up track replacement when user switches devices
+  useEffect(() => {
+    onTrackChangedRef.current = (newStream) => {
+      replaceTracks(newStream);
+    };
+    return () => {
+      onTrackChangedRef.current = null;
+    };
+  }, [onTrackChangedRef, replaceTracks]);
 
   useEffect(() => {
     if (localVideoRef.current && stream) {
@@ -45,6 +65,14 @@ export default function CallPage() {
       remoteVideoRef.current.srcObject = remoteStream;
     }
   }, [remoteStream]);
+
+  // Apply audio output device to the remote video element
+  useEffect(() => {
+    const el = remoteVideoRef.current as HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> };
+    if (el?.setSinkId && selectedAudioOutput) {
+      el.setSinkId(selectedAudioOutput).catch(() => {});
+    }
+  }, [selectedAudioOutput, remoteStream]);
 
   const hangUp = useCallback(() => {
     cleanupWebRTC();
@@ -97,6 +125,12 @@ export default function CallPage() {
               className="rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-500"
             >
               {copied ? "Copied!" : "Copy Link"}
+            </button>
+            <button
+              onClick={() => navigate(`/call/${generateCallId()}`)}
+              className="rounded bg-gray-600 px-3 py-1 text-sm font-medium text-white hover:bg-gray-500"
+            >
+              New Link
             </button>
           </div>
         </div>
@@ -152,6 +186,18 @@ export default function CallPage() {
           )}
         </button>
 
+        {/* Settings */}
+        <button
+          onClick={() => setSettingsOpen((o) => !o)}
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-700 hover:bg-gray-600"
+          title="Device settings"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+
         {/* Hang up */}
         <button
           onClick={hangUp}
@@ -163,6 +209,50 @@ export default function CallPage() {
           </svg>
         </button>
       </div>
+
+      {/* Settings panel */}
+      {settingsOpen && (
+        <div className="absolute bottom-24 left-1/2 flex -translate-x-1/2 flex-col gap-3 rounded-lg bg-gray-800/95 p-4 shadow-xl backdrop-blur">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-400">Microphone</label>
+            <select
+              value={selectedAudioInput}
+              onChange={(e) => switchAudioInput(e.target.value)}
+              className={selectClass}
+            >
+              {audioInputs.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>{d.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-400">Camera</label>
+            <select
+              value={selectedVideoInput}
+              onChange={(e) => switchVideoInput(e.target.value)}
+              className={selectClass}
+            >
+              {videoInputs.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>{d.label}</option>
+              ))}
+            </select>
+          </div>
+          {audioOutputs.length > 0 && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-400">Speaker</label>
+              <select
+                value={selectedAudioOutput}
+                onChange={(e) => switchAudioOutput(e.target.value)}
+                className={selectClass}
+              >
+                {audioOutputs.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>{d.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Connection status */}
       {isConnected && (

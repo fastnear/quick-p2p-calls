@@ -276,5 +276,16 @@ export function useWebRTC(signaling: SignalingHandle, connected: boolean, localS
     }
   }, [localStream]);
 
-  return { remoteStream, connectionState, debug, cleanup };
+  const replaceTracks = useCallback((newStream: MediaStream) => {
+    const pc = pcRef.current;
+    if (!pc) return;
+    for (const sender of pc.getSenders()) {
+      const newTrack = newStream.getTracks().find((t) => t.kind === sender.track?.kind);
+      if (newTrack) {
+        sender.replaceTrack(newTrack).catch(() => {});
+      }
+    }
+  }, []);
+
+  return { remoteStream, connectionState, debug, cleanup, replaceTracks };
 }
