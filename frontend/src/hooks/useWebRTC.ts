@@ -127,8 +127,20 @@ export function useWebRTC(signaling: SignalingHandle, connected: boolean, localS
       return pc;
     };
 
+    const pcIsHealthy = () => {
+      const pc = pcRef.current;
+      return pc && (pc.connectionState === "connected" || pc.connectionState === "connecting");
+    };
+
     const handleMessage = async (msg: SignalingMessage) => {
-      console.log("[webrtc] handleMessage:", msg.type, "stream:", !!localStreamRef.current);
+      console.log("[webrtc] handleMessage:", msg.type, "stream:", !!localStreamRef.current, "pc:", pcRef.current?.connectionState);
+
+      // Skip renegotiation if the peer connection is already working
+      if ((msg.type === "peer-joined" || msg.type === "offer") && pcIsHealthy()) {
+        console.log("[webrtc] skipping, peer connection already healthy");
+        return;
+      }
+
       if ((msg.type === "peer-joined" || msg.type === "offer") && !localStreamRef.current) {
         console.log("[webrtc] buffering message, no stream yet");
         pendingRef.current = msg;
