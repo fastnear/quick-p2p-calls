@@ -11,10 +11,13 @@ export interface SignalingHandle {
   close: () => void;
 }
 
+const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 10000];
+
 export function useSignaling(callId: string | undefined) {
   const wsRef = useRef<WebSocket | null>(null);
   const onMessageRef = useRef<((msg: SignalingMessage) => void) | null>(null);
   const [connected, setConnected] = useState(false);
+  const closedIntentionally = useRef(false);
 
   const handle = useMemo<SignalingHandle>(() => ({
     sendMessage(msg: SignalingMessage) {
@@ -24,6 +27,7 @@ export function useSignaling(callId: string | undefined) {
       onMessageRef.current = handler;
     },
     close() {
+      closedIntentionally.current = true;
       wsRef.current?.close();
       wsRef.current = null;
     },
@@ -36,34 +40,54 @@ export function useSignaling(callId: string | undefined) {
       || `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
 
     let cancelled = false;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    closedIntentionally.current = false;
 
-    ws.onopen = () => {
-      if (cancelled) {
-        ws.close();
-        return;
-      }
-      setConnected(true);
-      ws.send(JSON.stringify({ type: "join", call_id: callId }));
-    };
+    function connect() {
+      if (cancelled) return;
 
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data) as SignalingMessage;
-      console.log("[signaling] recv:", msg.type, "handler set:", !!onMessageRef.current);
-      onMessageRef.current?.(msg);
-    };
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    ws.onclose = () => {
-      if (wsRef.current === ws) {
-        setConnected(false);
-        wsRef.current = null;
-      }
-    };
+      ws.onopen = () => {
+        if (cancelled) {
+          ws.close();
+          return;
+        }
+        reconnectAttempt = 0;
+        setConnected(true);
+        ws.send(JSON.stringify({ type: "join", call_id: callId }));
+      };
+
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data) as SignalingMessage;
+        console.log("[signaling] recv:", msg.type, "handler set:", !!onMessageRef.current);
+        onMessageRef.current?.(msg);
+      };
+
+      ws.onclose = () => {
+        if (wsRef.current === ws) {
+          setConnected(false);
+          wsRef.current = null;
+        }
+
+        if (!cancelled && !closedIntentionally.current) {
+          const delay = RECONNECT_DELAYS[Math.min(reconnectAttempt, RECONNECT_DELAYS.length - 1)];
+          console.log(`[signaling] reconnecting in ${delay}ms (attempt ${reconnectAttempt + 1})`);
+          reconnectAttempt++;
+          reconnectTimer = setTimeout(connect, delay);
+        }
+      };
+    }
+
+    connect();
 
     return () => {
       cancelled = true;
-      if (ws.readyState === WebSocket.OPEN) {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
         ws.close();
       }
       if (wsRef.current === ws) {

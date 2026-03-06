@@ -265,7 +265,8 @@ export function useWebRTC(signaling: SignalingHandle, connected: boolean, localS
       clearInterval(statsInterval);
       console.log("[webrtc] effect cleanup");
       handlerRef.current = null;
-      cleanup();
+      // Don't close the peer connection here — it should survive WS reconnects.
+      // cleanup() is called explicitly on peer-left or hang up.
     };
   }, [connected, signaling, cleanup]);
 
